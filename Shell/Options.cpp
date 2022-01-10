@@ -1217,6 +1217,13 @@ void Options::init()
             _inductionGen.reliesOn(_induction.is(notEqual(Induction::NONE)));
             _lookup.insert(&_inductionGen);
 
+            _inductionStrengthenHypothesis = BoolOptionValue("induction_strenghten_hypothesis","indstrhyp",false);
+            _inductionStrengthenHypothesis.description = "Strengthen induction formulas with the remaining skolem constants"
+                                                         " replaced with universally quantified variables in hypotheses";
+            _inductionStrengthenHypothesis.tag(OptionTag::INFERENCES);
+            _inductionStrengthenHypothesis.reliesOn(_induction.is(notEqual(Induction::NONE)));
+            _lookup.insert(&_inductionStrengthenHypothesis);
+
             _maxInductionGenSubsetSize = UnsignedOptionValue("max_induction_gen_subset_size","indgenss",3);
             _maxInductionGenSubsetSize.description = "Set maximum number of occurrences of the induction term to be"
                                                       " generalized, where 0 means no max. (Regular induction will"

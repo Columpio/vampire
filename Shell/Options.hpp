@@ -2184,6 +2184,7 @@ public:
   bool inductionNegOnly() const { return _inductionNegOnly.actualValue; }
   bool inductionUnitOnly() const { return _inductionUnitOnly.actualValue; }
   bool inductionGen() const { return _inductionGen.actualValue; }
+  bool inductionStrengthenHypothesis() const { return _inductionStrengthenHypothesis.actualValue; }
   unsigned maxInductionGenSubsetSize() const { return _maxInductionGenSubsetSize.actualValue; }
   bool inductionOnComplexTerms() const {return _inductionOnComplexTerms.actualValue;}
   bool integerInductionDefaultBound() const { return _integerInductionDefaultBound.actualValue; }
@@ -2482,6 +2483,7 @@ private:
   BoolOptionValue _inductionNegOnly;
   BoolOptionValue _inductionUnitOnly;
   BoolOptionValue _inductionGen;
+  BoolOptionValue _inductionStrengthenHypothesis;
   UnsignedOptionValue _maxInductionGenSubsetSize;
   BoolOptionValue _inductionOnComplexTerms;
   BoolOptionValue _integerInductionDefaultBound;

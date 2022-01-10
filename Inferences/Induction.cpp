@@ -319,6 +319,7 @@ void InductionClauseIterator::processLiteral(Clause* premise, Literal* lit)
   }
 
   static bool generalize = env.options->inductionGen();
+  static bool strengthenHyp = env.options->inductionStrengthenHypothesis();
 
   if(InductionHelper::isInductionLiteral(lit)){
       Set<Term*> ta_terms;
@@ -330,7 +331,7 @@ void InductionClauseIterator::processLiteral(Clause* premise, Literal* lit)
         TermList ts = it.next();
         if(!ts.isTerm()){ continue; }
         unsigned f = ts.term()->functor();
-        if (env.signature->getFunction(f)->skolem()) {
+        if (env.signature->getFunction(f)->skolem() && strengthenHyp) {
           skolems.insert(ts.term());
         }
         if(InductionHelper::isInductionTermFunctor(f)){
@@ -800,7 +801,14 @@ void InductionClauseIterator::performStructInductionOne(Clause* premise, Literal
         argTerms.push(x);
       }
       TermReplacement cr(term,TermList(Term::create(con->functor(),(unsigned)argTerms.size(), argTerms.begin())));
-      Formula* right = new AtomicFormula(cr.transform(clit));
+      auto lit = cr.transform(clit);
+      Set<Term*>::Iterator it(occurringSkolems);
+      while (it.hasNext()) {
+        auto skt = it.next();
+        TermReplacement sr(skt,TermList(var++,false));
+        lit = sr.transform(lit);
+      }
+      Formula* right = new AtomicFormula(lit);
       Formula* left = 0;
       ASS(ta_vars.size()>=1);
       auto hypVars = VList::empty();
@@ -847,6 +855,12 @@ void InductionClauseIterator::performStructInductionOne(Clause* premise, Literal
                                                           : formulas->head();
   TermReplacement cr(term,TermList(var,false));
   Literal* conclusion = cr.transform(clit);
+  Set<Term*>::Iterator oit(occurringSkolems);
+  while (oit.hasNext()) {
+    auto skt = oit.next();
+    TermReplacement sr(skt,TermList(var++,false));
+    conclusion = sr.transform(conclusion);
+  }
   Formula* hypothesis = new BinaryFormula(Connective::IMP,
                             Formula::quantify(indPremise),
                             Formula::quantify(new AtomicFormula(conclusion)));
