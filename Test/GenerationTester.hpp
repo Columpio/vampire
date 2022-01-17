@@ -130,6 +130,7 @@ public:
 
     // add the clauses to the index
     for (auto c : _context) {
+      c->setStore(Clause::ACTIVE);
       container.add(c);
     }
 

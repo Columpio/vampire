@@ -1217,7 +1217,7 @@ void Options::init()
             _inductionGen.reliesOn(_induction.is(notEqual(Induction::NONE)));
             _lookup.insert(&_inductionGen);
 
-            _inductionStrengthenHypothesis = BoolOptionValue("induction_strenghten_hypothesis","indstrhyp",false);
+            _inductionStrengthenHypothesis = BoolOptionValue("induction_strengthen_hypothesis","indstrhyp",false);
             _inductionStrengthenHypothesis.description = "Strengthen induction formulas with the remaining skolem constants"
                                                          " replaced with universally quantified variables in hypotheses";
             _inductionStrengthenHypothesis.tag(OptionTag::INFERENCES);
