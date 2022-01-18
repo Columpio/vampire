@@ -125,6 +125,9 @@ private:
   DECL_CONST(b, s)                                                                         \
   DECL_FUNC(r, {s}, s)                                                                     \
   DECL_TERM_ALGEBRA(s, {b, r})                                                             \
+  __ALLOW_UNUSED(                                                                          \
+    auto r0 = r.dtor(0);                                                                   \
+  )                                                                                        \
   DECL_CONST(b1, u)                                                                        \
   DECL_CONST(b2, u)                                                                        \
   DECL_FUNC(r1, {s, u, u}, u)                                                              \
@@ -183,20 +186,21 @@ TEST_GENERATION_INDUCTION(test_04,
       })
     )
 
-// // normal case sik=two
-// TEST_GENERATION_INDUCTION(test_05,
-//     Generation::TestCase()
-//       .options({ { "induction", "struct" }, { "structural_induction_kind", "two" } })
-//       .indices({ comparisonIndex() })
-//       .input( clause({  ~p(f(sK1,sK2)) }))
-//       .expected({
-//         clause({ ~p(f(b,sK2)), p(f(x,sK2)) }),
-//         clause({ ~p(f(b,sK2)), ~p(f(r(x),sK2)) }),
-//         clause({ ~p(f(sK1,b)), p(f(sK1,y)) }),
-//         clause({ ~p(f(sK1,b)), ~p(f(sK1,r(y))) }),
-//       })
-//     )
+// normal case sik=two
+TEST_GENERATION_INDUCTION(test_05,
+    Generation::TestCase()
+      .options({ { "induction", "struct" }, { "structural_induction_kind", "two" } })
+      .indices({ comparisonIndex() })
+      .input( clause({  ~p(f(sK1,sK2)) }))
+      .expected({
+        clause({ x != r(r0(x)), p(f(r0(x),sK2)) }),
+        clause({ ~p(f(x,sK2)) }),
+        clause({ y != r(r0(y)), p(f(sK1,r0(y))) }),
+        clause({ ~p(f(sK1,y)) }),
+      })
+    )
 
+// TODO this case is a bit hard to test since new predicates are introduced
 // // normal case sik=three
 // TEST_GENERATION_INDUCTION(test_06,
 //     Generation::TestCase()
