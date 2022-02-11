@@ -74,11 +74,13 @@ void getSkolems(DHSet<Term*>& skolems, Literal* lit) {
   }
 }
 
-Literal* replaceTermsWithVariables(const DHSet<Term*>& terms, Literal* lit, unsigned& var) {
-  DHSet<Term*>::Iterator it(terms);
+Literal* replaceTermsWithVariables(const DHMap<Term*,unsigned>& terms, Literal* lit) {
+  DHMap<Term*,unsigned>::Iterator it(terms);
   while (it.hasNext()) {
-    auto t = it.next();
-    TermReplacement tr(t,TermList(var++,false));
+    Term* t;
+    unsigned v;
+    it.next(t,v);
+    TermReplacement tr(t,TermList(v,false));
     lit = tr.transform(lit);
   }
   return lit;
@@ -311,7 +313,7 @@ ClauseIterator Induction::generateClauses(Clause* premise)
 {
   CALL("Induction::generateClauses");
 
-  return pvi(InductionClauseIterator(premise, InductionHelper(_comparisonIndex, _inductionTermIndex, _salg->getSplitter())));
+  return pvi(InductionClauseIterator(premise, InductionHelper(_comparisonIndex, _inductionTermIndex, _salg->getSplitter()), _lis.ptr()));
 }
 
 void InductionClauseIterator::processClause(Clause* premise)
@@ -342,10 +344,9 @@ void InductionClauseIterator::processLiteral(Clause* premise, Literal* lit)
 
   static bool generalize = env.options->inductionGen();
 
-  if(InductionHelper::isInductionLiteral(lit)){
+  if (InductionHelper::isInductionLiteral(lit)) {
       Set<Term*> ta_terms;
       Set<Term*> int_terms;
-      Set<Term*> skolems;
       //TODO this should be a non-variable non-type iterator it seems
       SubtermIterator it(lit);
       while(it.hasNext()){
@@ -404,7 +405,12 @@ void InductionClauseIterator::processLiteral(Clause* premise, Literal* lit)
             }
           } while (generalize && (ilit = subsetReplacement.transformSubset(rule)));
         }
-      } 
+      }
+      auto uit = _lis->getUnifications(lit, true, true);
+      while (uit.hasNext()) {
+        auto qr = uit.next();
+        _clauses.push(BinaryResolution::generateClause(premise, lit, qr, *env.options));
+      }
    }
 }
 
@@ -532,6 +538,8 @@ void InductionClauseIterator::produceClauses(Clause* premise, Literal* origLit, 
   inf.setInductionDepth(premise->inference().inductionDepth()+1);
   FormulaUnit* fu = new FormulaUnit(hypothesis,inf);
   cnf.clausify(NNF::ennf(fu), hyp_clauses);
+  DHSet<Term*> origSkolems;
+  getSkolems(origSkolems, origLit);
 
   // Now, when possible, perform resolution against all literals from toResolve, which contain:
   // 1. the original literal,
@@ -542,23 +550,35 @@ void InductionClauseIterator::produceClauses(Clause* premise, Literal* origLit, 
   Stack<Clause*>::Iterator cit(hyp_clauses);
   while(cit.hasNext()){
     Clause* c = cit.next();
-    bool resolved = false;
-    List<pair<Literal*, SLQueryResult>>::RefIterator resIt(toResolve);
-    while (resIt.hasNext()) {
-      auto& litAndSLQR = resIt.next();
-      // If litAndSLQR contains a literal present in the clause, resolve it.
-      if(litAndSLQR.first && c->contains(litAndSLQR.first)){
-        if (resolved) {
-          // 'c' is never added to the saturation set, hence we need to call splitter here, before
-          // we apply binary resolution on it.
-          _helper.callSplitterOnNewClause(c);
+    c->setStore(Clause::Store::ACTIVE);
+    for (unsigned i = 0; i < c->length(); i++) {
+      auto lit = (*c)[i];
+      if (!lit->ground() && origLit->polarity()!=lit->polarity()) {
+        DHSet<Term*> skolems;
+        getSkolems(skolems, lit);
+        skolems.removeIteratorElements(origSkolems.iterator());
+        if (skolems.isEmpty()) {
+          _lis->insert(lit, c);
         }
-        c = BinaryResolution::generateClause(c,litAndSLQR.first,litAndSLQR.second,*env.options);
-        ASS(c);
-        resolved = true;
       }
     }
-    _clauses.push(c);
+    // bool resolved = false;
+    // List<pair<Literal*, SLQueryResult>>::RefIterator resIt(toResolve);
+    // while (resIt.hasNext()) {
+    //   auto& litAndSLQR = resIt.next();
+    //   // If litAndSLQR contains a literal present in the clause, resolve it.
+    //   if(litAndSLQR.first && c->contains(litAndSLQR.first)){
+    //     if (resolved) {
+    //       // 'c' is never added to the saturation set, hence we need to call splitter here, before
+    //       // we apply binary resolution on it.
+    //       _helper.callSplitterOnNewClause(c);
+    //     }
+    //     c = BinaryResolution::generateClause(c,litAndSLQR.first,litAndSLQR.second,*env.options);
+    //     ASS(c);
+    //     resolved = true;
+    //   }
+    // }
+    // _clauses.push(c);
   }
   env.statistics->induction++;
   if (rule == InferenceRule::GEN_INDUCTION_AXIOM ||
@@ -646,51 +666,27 @@ void InductionClauseIterator::performIntInduction(Clause* premise, Literal* orig
   TermList b1(bound1.term);
   TermList one(theory->representConstant(IntegerConstantType(increasing ? 1 : -1)));
 
-  DHSet<Term*> skolems;
-  static const bool strengthenHyp = env.options->inductionStrengthenHypothesis();
-  if (strengthenHyp) {
-    getSkolems(skolems, lit);
-    DHSet<Term*> boundSkolems;
-    getSkolems(boundSkolems, bound1.literal);
-    if (optionalBound2) {
-      getSkolems(boundSkolems, optionalBound2->literal);
-    }
-    DHSet<Term*>::Iterator bskit(boundSkolems);
-    while (bskit.hasNext()) {
-      skolems.remove(bskit.next());
-    }
-  }
-
   TermList x(0,false);
   TermList y(1,false);
-  unsigned var = 2;
 
   Literal* clit = Literal::complementaryLiteral(lit);
 
   // create L[b1]
   TermReplacement cr1(term,b1);
-  Formula* Lb1 = new AtomicFormula(replaceTermsWithVariables(skolems, cr1.transform(clit), var));
+  Formula* Lb1 = new AtomicFormula(cr1.transform(clit));
 
   // create L[X] 
   TermReplacement cr2(term,x);
-  auto hypVars = VList::empty();
-  auto temp = var;
-  Formula* Lx = new AtomicFormula(replaceTermsWithVariables(skolems, cr2.transform(clit), var));
-  for (unsigned i = temp; i < var; i++) {
-    VList::push(i, hypVars);
-  }
-  if (VList::isNonEmpty(hypVars)) {
-    Lx = new QuantifiedFormula(Connective::FORALL, hypVars, 0, Lx);
-  }
+  Formula* Lx = new AtomicFormula(cr2.transform(clit));
 
   // create L[Y] 
   TermReplacement cr3(term,y);
-  Formula* Ly = new AtomicFormula(replaceTermsWithVariables(skolems, cr3.transform(clit), var));
+  Formula* Ly = new AtomicFormula(cr3.transform(clit));
 
   // create L[X+1] or L[X-1]
   TermList fpo(Term::create2(env.signature->getInterpretingSymbol(Theory::INT_PLUS),x,one));
   TermReplacement cr4(term,fpo);
-  Formula* Lxpo = new AtomicFormula(replaceTermsWithVariables(skolems, cr4.transform(clit), var));
+  Formula* Lxpo = new AtomicFormula(cr4.transform(clit));
 
   static unsigned less = env.signature->getInterpretingSymbol(Theory::INT_LESS);
   // create X>=b1 (which is ~X<b1) or X<=b1 (which is ~b1<X)
@@ -783,8 +779,6 @@ void InductionClauseIterator::performStructInductionOne(Clause* premise, Literal
   CALL("InductionClauseIterator::performStructInductionOne"); 
 
   TermAlgebra* ta = env.signature->getTermAlgebraOfSort(env.signature->getFunction(term->functor())->fnType()->result());
-  TermList ta_sort = ta->sort();
-
   FormulaList* formulas = FormulaList::empty();
   DHSet<Term*> skolems;
   static const bool strengthenHyp = env.options->inductionStrengthenHypothesis();
@@ -794,81 +788,66 @@ void InductionClauseIterator::performStructInductionOne(Clause* premise, Literal
 
   Literal* clit = Literal::complementaryLiteral(lit);
   unsigned var = 0;
+  DHMap<Term*,unsigned> skVars;
 
-  // first produce the formula
-  for(unsigned i=0;i<ta->nConstructors();i++){
+  for(unsigned i = 0; i < ta->nConstructors(); i++) {
     TermAlgebraConstructor* con = ta->constructor(i);
-    unsigned arity = con->arity();
-    Formula* f = 0;
 
-    // non recursive get L[_]
-    if(!con->recursive()){
-      if(arity==0){
-        TermReplacement cr(term,TermList(Term::createConstant(con->functor())));
-        f = new AtomicFormula(replaceTermsWithVariables(skolems, cr.transform(clit), var));
+    Stack<TermList> argTerms;
+    Stack<TermList> ta_vars;
+    for (unsigned i = 0; i < con->arity(); i++) {
+      TermList x(var++,false);
+      if (con->argSort(i) == ta->sort()) {
+        ta_vars.push(x);
       }
-      else{
-        Stack<TermList> argTerms;
-        for(unsigned i=0;i<arity;i++){
-          argTerms.push(TermList(var,false));
-          var++;
-        }
-        TermReplacement cr(term,TermList(Term::create(con->functor(),(unsigned)argTerms.size(), argTerms.begin())));
-        f = new AtomicFormula(replaceTermsWithVariables(skolems, cr.transform(clit), var));
-      }
+      argTerms.push(x);
     }
-    // recursive get (L[x] => L[c(x)])
-    else{
-      ASS(arity>0);
-      Stack<TermList> argTerms;
-      Stack<TermList> ta_vars;
-      for(unsigned i=0;i<arity;i++){
-        TermList x(var,false);
-        var++;
-        if(con->argSort(i) == ta_sort){
-          ta_vars.push(x);
-        }
-        argTerms.push(x);
-      }
-      TermReplacement cr(term,TermList(Term::create(con->functor(),(unsigned)argTerms.size(), argTerms.begin())));
-      Formula* right = new AtomicFormula(replaceTermsWithVariables(skolems, cr.transform(clit), var));
-      Formula* left = 0;
-      ASS(ta_vars.size()>=1);
-      auto hypVars = VList::empty();
-      auto temp = var;
-      if(ta_vars.size()==1){
-        TermReplacement cr(term,ta_vars[0]);
-        left = new AtomicFormula(replaceTermsWithVariables(skolems, cr.transform(clit), var));
-      }
-      else{
-        FormulaList* args = FormulaList::empty();
-        Stack<TermList>::Iterator tvit(ta_vars);
-        while(tvit.hasNext()){
-          TermReplacement cr(term,tvit.next());
-          args = new FormulaList(new AtomicFormula(replaceTermsWithVariables(skolems, cr.transform(clit), var)),args);
-        }
-        left = new JunctionFormula(Connective::AND,args);
-      }
-      for (unsigned i = temp; i < var; i++) {
-        VList::push(i, hypVars);
-      }
-      if (VList::isNonEmpty(hypVars)) {
-        left = new QuantifiedFormula(Connective::FORALL, hypVars, 0, left);
-      }
-      f = new BinaryFormula(Connective::IMP,left,right);
+    skVars.reset();
+    DHSet<Term*>::Iterator skit(skolems);
+    while (skit.hasNext()) {
+      auto sk = skit.next();
+      skVars.insert(sk, var++);
     }
-
-    ASS(f);
-    formulas = new FormulaList(f,formulas);
+    TermReplacement cr(term,TermList(Term::create(con->functor(),(unsigned)argTerms.size(), argTerms.begin())));
+    Formula* right = new AtomicFormula(replaceTermsWithVariables(skVars, cr.transform(clit)));
+    auto hypVars = VList::empty();
+    FormulaList* args = FormulaList::empty();
+    Stack<TermList>::Iterator tvit(ta_vars);
+    while(tvit.hasNext()){
+      if (strengthenHyp) {
+        skVars.reset();
+        DHSet<Term*>::Iterator skit(skolems);
+        while (skit.hasNext()) {
+          auto sk = skit.next();
+          VList::push(var, hypVars);
+          skVars.insert(sk, var++);
+        }
+      }
+      TermReplacement cr(term,tvit.next());
+      FormulaList::push(new AtomicFormula(replaceTermsWithVariables(skVars, cr.transform(clit))),args);
+    }
+    Formula* left = args ? JunctionFormula::generalJunction(Connective::AND,args) : 0;
+    if (hypVars) {
+      ASS(left);
+      left = new QuantifiedFormula(Connective::FORALL, hypVars, 0, left);
+    }
+    FormulaList::push(left ? new BinaryFormula(Connective::IMP,left,right) : right, formulas);
   }
   ASS_G(FormulaList::length(formulas), 0);
   Formula* indPremise = FormulaList::length(formulas) > 1 ? new JunctionFormula(Connective::AND,formulas)
                                                           : formulas->head();
-  TermReplacement cr(term,TermList(var,false));
-  Literal* conclusion = replaceTermsWithVariables(skolems, cr.transform(clit), var);
+  TermReplacement cr(term,TermList(var++,false));
+  skVars.reset();
+  DHSet<Term*>::Iterator skit(skolems);
+  while (skit.hasNext()) {
+    auto sk = skit.next();
+    skVars.insert(sk, var++);
+  }
+  Literal* conclusion = replaceTermsWithVariables(skVars, cr.transform(clit));
   Formula* hypothesis = new BinaryFormula(Connective::IMP,
                             Formula::quantify(indPremise),
                             Formula::quantify(new AtomicFormula(conclusion)));
+  // cout << *hypothesis << endl;
 
   static ResultSubstitutionSP identity = ResultSubstitutionSP(new IdentitySubstitution());
   pair<Literal*, SLQueryResult> toResolve(conclusion, SLQueryResult(origLit, premise, identity));

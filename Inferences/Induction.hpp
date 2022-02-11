@@ -21,6 +21,7 @@
 #include "Forwards.hpp"
 
 #include "Indexing/LiteralIndex.hpp"
+#include "Indexing/LiteralSubstitutionTree.hpp"
 #include "Indexing/TermIndex.hpp"
 
 #include "Kernel/TermTransformer.hpp"
@@ -87,7 +88,7 @@ public:
   CLASS_NAME(Induction);
   USE_ALLOCATOR(Induction);
 
-  Induction() {}
+  Induction() : _lis(new LiteralSubstitutionTree(false)) {}
 
   void attach(SaturationAlgorithm* salg) override;
   void detach() override;
@@ -104,14 +105,15 @@ private:
   // The following pointers can be null if int induction is off.
   LiteralIndex* _comparisonIndex = nullptr;
   TermIndex* _inductionTermIndex = nullptr;
+  ScopedPtr<LiteralIndexingStructure> _lis;
 };
 
 class InductionClauseIterator
 {
 public:
   // all the work happens in the constructor!
-  InductionClauseIterator(Clause* premise, InductionHelper helper)
-      : _helper(helper)
+  InductionClauseIterator(Clause* premise, InductionHelper helper, LiteralIndexingStructure* lis)
+    : _clauses(), _helper(helper), _lis(lis)
   {
     processClause(premise);
   }
@@ -169,6 +171,7 @@ private:
 
   Stack<Clause*> _clauses;
   InductionHelper _helper;
+  LiteralIndexingStructure* _lis;
 };
 
 };
