@@ -140,8 +140,7 @@ private:
 
   // Clausifies the hypothesis, resolves it against the conclusion/toResolve,
   // and increments relevant statistics.
-  void produceClauses(Clause* premise, Literal* origLit, Formula* hypothesis, InferenceRule rule, const pair<Literal*, SLQueryResult>& conclusion);
-  void produceClauses(Clause* premise, Literal* origLit, Formula* hypothesis, InferenceRule rule, const List<pair<Literal*, SLQueryResult>>* bounds);
+  void produceClauses(Clause* premise, Literal* origLit, Formula* hypothesis, InferenceRule rule, const List<pair<Literal*, SLQueryResult>>* toResolve);
 
   // Calls generalizeAndPerformIntInduction(...) for those induction literals from inductionTQRsIt,
   // which are non-redundant with respect to the indTerm, bounds, and increasingness.
