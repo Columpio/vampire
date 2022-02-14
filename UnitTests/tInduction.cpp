@@ -47,11 +47,12 @@ public:
         return false;
       }
       if (!_subst.match(Kernel::TermList(r), 0, Kernel::TermList(l), 1)) {
-        if (l->isEquality() && r->isEquality()) {
-          return _subst.match(*r->nthArgument(0), 0, *l->nthArgument(1), 1) &&
-            _subst.match(*r->nthArgument(1), 0, *l->nthArgument(0), 1);
+        if (!l->isEquality() || !r->isEquality() ||
+          !_subst.match(*r->nthArgument(0), 0, *l->nthArgument(1), 1) ||
+          !_subst.match(*r->nthArgument(1), 0, *l->nthArgument(0), 1))
+        {
+          return false;
         }
-        return false;
       }
       // since we may have non-ground hypothesis, and checking those might give false
       // positive matches where multiple variables are mapped to the same term unintentionally,
@@ -367,6 +368,7 @@ TEST_GENERATION_INDUCTION(test_11,
     )
 
 // "same induction" (i.e. generalized literal is same) is not done twice
+// but resolved with second literal as well
 //
 // TODO: this should be done with two inputs rather than with a non-unit clause
 TEST_GENERATION_INDUCTION(test_12,
@@ -377,6 +379,8 @@ TEST_GENERATION_INDUCTION(test_12,
       .expected({
         clause({ b != g(b), x == g(x), sK2 != g(sK2) }),
         clause({ b != g(b), r(x) != g(r(x)), sK2 != g(sK2) }),
+        clause({ b != g(b), x == g(x), sK1 != g(sK1) }),
+        clause({ b != g(b), r(x) != g(r(x)), sK1 != g(sK1) }),
       })
     )
 
@@ -461,7 +465,7 @@ TEST_GENERATION_INDUCTION(test_16,
       })
     )
 
-// all skolems are replaced when the hypothesis strengthening options is on
+// all skolems are replaced when the hypothesis strengthening options is on, sik=one
 TEST_GENERATION_INDUCTION(test_17,
     Generation::TestCase()
       .options({ { "induction", "struct" },
@@ -483,17 +487,24 @@ TEST_GENERATION_INDUCTION(test_17,
       })
     )
 
-// all skolems not in the comparison are replaced when the hypothesis strengthening options is on
+// all skolems are replaced when the hypothesis strengthening options is on, sik=two
 TEST_GENERATION_INDUCTION(test_18,
     Generation::TestCase()
-      .options({ { "induction", "int" },
+      .options({ { "induction", "struct" }, { "structural_induction_kind", "two" },
                  { "induction_strengthen_hypothesis", "on" } })
-      .context({ clause({ ~(sK6 < fi(sK7, sK1)) }) })
       .indices({ comparisonIndex() })
-      .input( clause({ fi(fi(sK6, sK1),sK2) != sK7+sK8 }) )
+      .input( clause({ f(sK1,sK2) != g(sK3) }) )
       .expected({
-        clause({ fi(fi(fi(sK7, sK1), sK1),x) != sK7+y, ~(x3 < fi(sK7, sK1)) }),
-        clause({ fi(fi(fi(sK7, sK1), sK1),x) != sK7+y, fi(fi(x3, sK1),x4) == sK7+x5 }),
-        clause({ fi(fi(fi(sK7, sK1), sK1),x) != sK7+y, fi(fi(x3+1, sK1),x6) != sK7+x7 }),
+        // sK1
+        clause({ x != r(r0(x)), f(r0(x),y) == g(z) }),
+        clause({ f(x,x4) != g(x5) }),
+
+        // sK2
+        clause({ x6 != r(r0(x6)), f(x7,r0(x6)) == g(x8) }),
+        clause({ f(x9,x6) != g(x10) }),
+
+        // sK3
+        clause({ x11 != r(r0(x11)), f(x12,x13) == g(r0(x11)) }),
+        clause({ f(x14,x15) != g(x11) }),
       })
     )
