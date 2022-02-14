@@ -387,9 +387,10 @@ void InductionClauseIterator::processLiteral(Clause* premise, Literal* lit)
                           env.options->structInduction() == Options::StructuralInductionKind::ALL;
         if(notDone(lit,t)){
           InferenceRule rule = InferenceRule::INDUCTION_AXIOM;
-          Term* inductionTerm = generalize ? getPlaceholderForTerm(t) : t;
+          Term* inductionTerm = getPlaceholderForTerm(t);
           Kernel::LiteralSubsetReplacement subsetReplacement(lit, t, TermList(inductionTerm));
-          Literal* ilit = generalize ? subsetReplacement.transformSubset(rule) : lit;
+          TermReplacement tr(t, TermList(inductionTerm));
+          Literal* ilit = generalize ? subsetReplacement.transformSubset(rule) : tr.transform(lit);
           ASS(ilit != nullptr);
           do {
             if(one){
@@ -881,8 +882,7 @@ void InductionClauseIterator::performStructInductionTwo(Clause* premise, Literal
       Stack<TermList> argTerms;
       Stack<TermList> taTerms;
       for(unsigned j=0;j<arity;j++){
-        unsigned dj = con->destructorFunctor(j);
-        TermList djy(Term::create1(dj,y));
+        TermList djy(Term::create1(con->destructorFunctor(j),y));
         argTerms.push(djy);
         if(con->argSort(j) == ta_sort){
           taTerms.push(djy);
@@ -943,13 +943,21 @@ void InductionClauseIterator::performStructInductionThree(Clause* premise, Liter
   TermList ta_sort = ta->sort();
 
   Literal* clit = Literal::complementaryLiteral(lit);
+  DHSet<Term*> skolems;
+  static const bool strengthenHyp = env.options->inductionStrengthenHypothesis();
+  if (strengthenHyp) {
+    getSkolems(skolems, lit);
+  }
 
   // make L[y]
-  TermList x(0,false);
-  TermList y(1,false);
-  TermList z(2,false);
+  unsigned var = 0;
+  TermList y(var++,false);
   TermReplacement cr(term,y);
-  Literal* Ly = cr.transform(lit);
+  auto mainVars = VList::empty();
+  Literal* Ly = replaceTermsWithFreshVariables(skolems, cr.transform(lit), var);
+  for(unsigned i = 0; i < var; i++) {
+    VList::push(i,mainVars);
+  }
 
   // make smallerThanY
   unsigned sty = env.signature->addFreshPredicate(1,"smallerThan");
@@ -978,18 +986,16 @@ void InductionClauseIterator::performStructInductionThree(Clause* premise, Liter
       Stack<TermList> taTerms;
       Stack<unsigned> ta_vars;
       Stack<TermList> varTerms;
-      unsigned vars = 3;
       for(unsigned j=0;j<arity;j++){
-        unsigned dj = con->destructorFunctor(j);
-        TermList djy(Term::create1(dj,y));
+        TermList djy(Term::create1(con->destructorFunctor(j),y));
         argTerms.push(djy);
-        TermList xj(vars,false);
+        TermList xj(var,false);
         varTerms.push(xj);
         if(con->argSort(j) == ta_sort){
           taTerms.push(djy);
-          ta_vars.push(vars);
+          ta_vars.push(var);
         }
-        vars++;
+        var++;
       }
       // create y = con1(...d1(y)...d2(y)...)
       TermList coni(Term::create(con->functor(),(unsigned)argTerms.size(), argTerms.begin()));
@@ -1023,17 +1029,19 @@ void InductionClauseIterator::performStructInductionThree(Clause* premise, Liter
     }
   }
   // now !z : smallerThanY(z) => ~L[z]
+  TermList z(var++,false);
   TermReplacement cr2(term,z);
   Formula* smallerImpNL = Formula::quantify(new BinaryFormula(Connective::IMP,
                             new AtomicFormula(Literal::create1(sty,true,z)),
-                            new AtomicFormula(cr2.transform(clit))));
+                            new AtomicFormula(replaceTermsWithFreshVariables(skolems, cr2.transform(clit), var))));
 
-  conjunction = new FormulaList(smallerImpNL,conjunction);
-  Formula* exists = new QuantifiedFormula(Connective::EXISTS, VList::singleton(y.var()),0,
+  FormulaList::push(smallerImpNL,conjunction);
+  Formula* exists = new QuantifiedFormula(Connective::EXISTS, mainVars /* VList::singleton(y.var()) */,0,
                        new JunctionFormula(Connective::AND,conjunction));
 
+  TermList x(var++,false);
   TermReplacement cr3(term,x);
-  Literal* conclusion = cr3.transform(clit);
+  Literal* conclusion = replaceTermsWithFreshVariables(skolems, cr3.transform(clit), var);
   auto orf = FormulaList::cons(exists,FormulaList::singleton(Formula::quantify(new AtomicFormula(conclusion))));
   Formula* hypothesis = new JunctionFormula(Connective::OR,orf);
 
