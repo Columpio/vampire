@@ -919,8 +919,9 @@ void InductionClauseIterator::performStructInductionThree(Clause* premise, Liter
   Literal* Ly = replaceTermsWithFreshVariables(skolems, cr.transform(lit), var, &mainVars);
 
   // make smallerThanY
-  unsigned sty = env.signature->addFreshPredicate(1,"smallerThan");
-  env.signature->getPredicate(sty)->setType(OperatorType::getPredicateType({ta_sort}));
+  // unsigned sty = env.signature->addFreshPredicate(1,"smallerThan");
+  // env.signature->getPredicate(sty)->setType(OperatorType::getPredicateType({ta_sort}));
+  unsigned sty = ta->getSubtermPredicate();
 
   // make ( y = con_i(..dec(y)..) -> smaller(dec(y)))  for each constructor
   auto conjunction = FormulaList::singleton(new AtomicFormula(Ly));
@@ -950,13 +951,14 @@ void InductionClauseIterator::performStructInductionThree(Clause* premise, Liter
     Literal* kneq = Literal::createEquality(true,y,coni,ta_sort);
 
     // create smaller(cons(x1,..,xn))
-    Formula* smaller_coni = new AtomicFormula(Literal::create1(sty,true,
-                              TermList(Term::create(con->functor(),(unsigned)varTerms.size(),varTerms.begin()))));
+    Formula* smaller_coni = new AtomicFormula(Literal::create2(sty,true,
+                              TermList(Term::create(con->functor(),(unsigned)varTerms.size(),varTerms.begin())),
+                              y));
 
     FormulaList* smallers = 0;
     Stack<unsigned>::Iterator vtit(ta_vars);
     while(vtit.hasNext()){
-      FormulaList::push(new AtomicFormula(Literal::create1(sty,true,TermList(vtit.next(),false))),smallers);
+      FormulaList::push(new AtomicFormula(Literal::create2(sty,true,TermList(vtit.next(),false), y)),smallers);
     }
     ASS(smallers);
     Formula* ax = Formula::quantify(new BinaryFormula(Connective::IMP,smaller_coni,
@@ -966,7 +968,7 @@ void InductionClauseIterator::performStructInductionThree(Clause* premise, Liter
     auto And = FormulaList::empty();
     Stack<TermList>::Iterator tit(taTerms);
     while(tit.hasNext()){
-      Formula* f = new AtomicFormula(Literal::create1(sty,true,tit.next()));
+      Formula* f = new AtomicFormula(Literal::create2(sty,true,tit.next(),y));
       FormulaList::push(f,And);
     }
     ASS(And);
@@ -979,7 +981,7 @@ void InductionClauseIterator::performStructInductionThree(Clause* premise, Liter
   TermList z(var++,false);
   TermReplacement cr2(term,z);
   Formula* smallerImpNL = Formula::quantify(new BinaryFormula(Connective::IMP,
-                            new AtomicFormula(Literal::create1(sty,true,z)),
+                            new AtomicFormula(Literal::create2(sty,true,z,y)),
                             new AtomicFormula(replaceTermsWithFreshVariables(skolems, cr2.transform(clit), var))));
 
   FormulaList::push(smallerImpNL,conjunction);
