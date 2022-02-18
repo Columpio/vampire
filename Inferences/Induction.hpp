@@ -20,6 +20,7 @@
 
 #include "Forwards.hpp"
 
+#include "Indexing/ClauseCodeTree.hpp"
 #include "Indexing/LiteralIndex.hpp"
 #include "Indexing/LiteralSubstitutionTree.hpp"
 #include "Indexing/TermIndex.hpp"
@@ -88,7 +89,9 @@ public:
   CLASS_NAME(Induction);
   USE_ALLOCATOR(Induction);
 
-  Induction() : _lis(new LiteralSubstitutionTree(false)) {}
+  Induction()
+    : _lis(new LiteralSubstitutionTree(false)),
+      _ctIntFin(), _ctInt() {}
 
   void attach(SaturationAlgorithm* salg) override;
   void detach() override;
@@ -106,14 +109,19 @@ private:
   LiteralIndex* _comparisonIndex = nullptr;
   TermIndex* _inductionTermIndex = nullptr;
   ScopedPtr<LiteralIndexingStructure> _lis;
+  ClauseCodeTree _ctIntFin;
+  ClauseCodeTree _ctInt;
 };
+
+using QR = pair<Literal*,Clause*>;
 
 class InductionClauseIterator
 {
 public:
   // all the work happens in the constructor!
-  InductionClauseIterator(Clause* premise, InductionHelper helper, LiteralIndexingStructure* lis)
-    : _clauses(), _helper(helper), _lis(lis)
+  InductionClauseIterator(Clause* premise, InductionHelper helper,
+    LiteralIndexingStructure* lis, ClauseCodeTree* ctIntFin, ClauseCodeTree* ctInt)
+    : _clauses(), _helper(helper), _lis(lis), _ctIntFin(ctIntFin), _ctInt(ctInt)
   {
     processClause(premise);
   }
@@ -140,7 +148,7 @@ private:
 
   // Clausifies the hypothesis, resolves it against the conclusion/toResolve,
   // and increments relevant statistics.
-  void produceClauses(Clause* premise, Literal* origLit, Literal* conclusion, Formula* hypothesis, InferenceRule rule, const List<pair<Literal*, SLQueryResult>>* toResolve);
+  void produceClauses(Clause* premise, Literal* origLit, Formula* hypothesis, InferenceRule rule, const Stack<pair<Literal*, QR>>& toResolve);
 
   // Calls generalizeAndPerformIntInduction(...) for those induction literals from inductionTQRsIt,
   // which are non-redundant with respect to the indTerm, bounds, and increasingness.
@@ -158,6 +166,7 @@ private:
   // Note: indLits may be created in this method, but it needs to be destroyed outside of it.
   void generalizeAndPerformIntInduction(Clause* premise, Literal* origLit, Term* origTerm, List<pair<Literal*, InferenceRule>>*& indLits, Term* indTerm, bool increasing, TermQueryResult& bound1, TermQueryResult* optionalBound2);
 
+  void resolveClauses(const DHSet<pair<QR, QR>>& infiniteTQRs, const DHSet<tuple<QR, QR, QR>>& finiteTQRs);
   void performIntInduction(Clause* premise, Literal* origLit, Literal* lit, Term* t, InferenceRule rule, bool increasing, const TermQueryResult& bound1, TermQueryResult* optionalBound2);
 
   void performStructInductionOne(Clause* premise, Literal* origLit, Literal* lit, Term* t, InferenceRule rule);
@@ -171,6 +180,8 @@ private:
   Stack<Clause*> _clauses;
   InductionHelper _helper;
   LiteralIndexingStructure* _lis;
+  ClauseCodeTree* _ctIntFin;
+  ClauseCodeTree* _ctInt;
 };
 
 };

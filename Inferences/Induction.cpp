@@ -55,12 +55,58 @@
 using std::pair;
 using std::make_pair;
 
+#define NEW
+
 namespace Inferences
 {
 using namespace Kernel;
 using namespace Lib; 
 
 namespace {
+
+class MultiClauseIterator
+: public IteratorCore<ClauseSResQueryResult>
+{
+public:
+  MultiClauseIterator(ClauseCodeTree* tree, LiteralStack* query)
+  : ready(false)
+  {
+    Recycler::get(cm);
+    cm->init(tree, query, false);
+  }
+  ~MultiClauseIterator()
+  {
+    cm->deinit();
+    Recycler::release(cm);
+  }
+  bool hasNext()
+  {
+    if(ready) {
+      return result;
+    }
+    ready=true;
+    result=cm->next(resolvedQueryLit);
+    ASS(!result || resolvedQueryLit<1000000);
+    return result;
+  }
+
+  ClauseSResQueryResult next()
+  {
+    ASS(result);
+    ready=false;
+    if(resolvedQueryLit==-1) {
+      return ClauseSResQueryResult(result);
+    }
+    else {
+      return ClauseSResQueryResult(result, resolvedQueryLit);
+    }
+  }
+private:
+  bool ready;
+  Clause* result;
+  int resolvedQueryLit;
+  Indexing::ClauseCodeTree::ClauseMatcher<LiteralStack>* cm;
+};
 
 DHSet<Term*> getSkolemsForStrengthening(Literal* lit) {
   static const bool strengthenHyp = env.options->inductionStrengthenHypothesis();
@@ -319,7 +365,7 @@ ClauseIterator Induction::generateClauses(Clause* premise)
 {
   CALL("Induction::generateClauses");
 
-  return pvi(InductionClauseIterator(premise, InductionHelper(_comparisonIndex, _inductionTermIndex, _salg->getSplitter()), _lis.ptr()));
+  return pvi(InductionClauseIterator(premise, InductionHelper(_comparisonIndex, _inductionTermIndex, _salg->getSplitter()), _lis.ptr(), &_ctIntFin, &_ctInt));
 }
 
 void InductionClauseIterator::processClause(Clause* premise)
@@ -335,6 +381,130 @@ void InductionClauseIterator::processClause(Clause* premise)
   }
   if (InductionHelper::isIntInductionTwoOn() && InductionHelper::isIntegerComparison(premise)) {
     processIntegerComparison(premise, (*premise)[0]);
+  }
+}
+
+Clause* generateClause(Clause* queryCl, Literal* queryLit, SLQueryResult qr, ResultSubstitution* subst = nullptr)
+{
+  CALL("generateClause");
+  unsigned clength = queryCl->length();
+  unsigned dlength = qr.clause->length();
+
+  Inference inf(GeneratingInference2(InferenceRule::RESOLUTION, queryCl, qr.clause));
+  unsigned newLength = clength+dlength-2;
+  Clause* res = new(newLength) Clause(newLength, inf);
+
+  unsigned next = 0;
+  for(unsigned i=0;i<clength;i++) {
+    Literal* curr=(*queryCl)[i];
+    if(curr!=queryLit) {
+      ASS(next < newLength);
+      (*res)[next] = curr;
+      next++;
+    }
+  }
+
+  for(unsigned i=0;i<dlength;i++) {
+    Literal* curr=(*qr.clause)[i];
+    if(curr!=qr.literal) {
+      if (subst) {
+        (*res)[next] = subst->applyToBoundResult(curr);
+      } else {
+        (*res)[next] = curr;
+      }
+      next++;
+    }
+  }
+  ASS_EQ(next,newLength);
+
+  env.statistics->resolution++;
+  return res;
+}
+
+Clause* generateClause(const vvector<QR>& queryCls, Clause* cl, Clause* conclusionCl)
+{
+  CALL("generateClause");
+  unsigned newLength = cl->length() - conclusionCl->length();
+  auto premises = UnitList::singleton(cl);
+  for (const auto& kv : queryCls) {
+    newLength += kv.second->length() - 1;
+    UnitList::push(kv.second, premises);
+  }
+
+  Inference inf(GeneratingInferenceMany(InferenceRule::RESOLUTION, premises));
+  Clause* res = new(newLength) Clause(newLength, inf);
+
+  unsigned next = 0;
+  for(unsigned i=0;i<cl->length();i++) {
+    Literal* curr=(*cl)[i];
+    if(!conclusionCl->contains(curr)) {
+      ASS(next < newLength);
+      (*res)[next] = curr;
+      next++;
+    }
+  }
+
+  for (const auto& kv : queryCls) {
+    for(unsigned i=0;i<kv.second->length();i++) {
+      Literal* curr=(*kv.second)[i];
+      if(curr!=kv.first) {
+        (*res)[next] = curr;
+        next++;
+      }
+    }
+  }
+  ASS_EQ(next,newLength);
+
+  env.statistics->resolution++;
+  return res;
+}
+
+ClauseSResResultIterator getMultiClauseIterator(ClauseCodeTree* ct, LiteralStack* st)
+{
+  if(ct->isEmpty()) {
+    return ClauseSResResultIterator::getEmpty();
+  }
+
+  return vi( new MultiClauseIterator(ct, st) );
+}
+
+void InductionClauseIterator::resolveClauses(const DHSet<pair<QR, QR>>& infiniteTQRs, const DHSet<tuple<QR, QR, QR>>& finiteTQRs)
+{
+  CALL("InductionClauseIterator::resolveClauses");
+  DHSet<pair<QR, QR>>::Iterator it(infiniteTQRs);
+  while (it.hasNext()) {
+    auto p = it.next();
+    vvector<QR> queryCls { p.first, p.second };
+    LiteralStack st;
+    st.push(Literal::complementaryLiteral(p.first.first));
+    st.push(Literal::complementaryLiteral(p.second.first));
+    auto uit = getMultiClauseIterator(_ctInt, &st);
+    while (uit.hasNext()) {
+      auto conclusionCl = uit.next().clause;
+      auto innerIt = conclusionCl->inference().iterator();
+      while (conclusionCl->inference().hasNext(innerIt)) {
+        auto cl = conclusionCl->inference().next(innerIt)->asClause();
+        _clauses.push(generateClause(queryCls, cl, conclusionCl));
+      }
+    }
+  }
+  DHSet<tuple<QR, QR, QR>>::Iterator it2(finiteTQRs);
+  while (it2.hasNext()) {
+    auto t = it2.next();
+    vvector<QR> queryCls { get<0>(t), get<1>(t), get<2>(t) };
+    LiteralStack st;
+    st.push(Literal::complementaryLiteral(get<2>(t).first));
+    st.push(Literal::complementaryLiteral(get<1>(t).first));
+    st.push(Literal::complementaryLiteral(get<0>(t).first));
+    auto uit = getMultiClauseIterator(_ctIntFin, &st);
+    while (uit.hasNext()) {
+      auto conclusionCl = uit.next().clause;
+      auto innerIt = conclusionCl->inference().iterator();
+      while (conclusionCl->inference().hasNext(innerIt)) {
+        auto cl = conclusionCl->inference().next(innerIt)->asClause();
+        _clauses.push(generateClause(queryCls, cl, conclusionCl));
+      }
+    }
   }
 }
 
@@ -370,6 +540,10 @@ void InductionClauseIterator::processLiteral(Clause* premise, Literal* lit)
       }
 
       Set<Term*>::Iterator citer1(int_terms);
+#ifdef NEW
+      DHSet<pair<QR, QR>> infiniteTQRs;
+      DHSet<tuple<QR, QR, QR>> finiteTQRs;
+#endif
       while(citer1.hasNext()){
         Term* t = citer1.next();
         Term* indTerm = generalize ? getPlaceholderForTerm(t) : t;
@@ -382,8 +556,35 @@ void InductionClauseIterator::processLiteral(Clause* premise, Literal* lit)
         addToMapFromIterator(leBound, _helper.getLess(t));
         performIntInductionForEligibleBounds(premise, lit, t, indLits, indTerm, /*increasing=*/true, leBound, grBound);
         performIntInductionForEligibleBounds(premise, lit, t, indLits, indTerm, /*increasing=*/false, grBound, leBound);
+
+#ifdef NEW
+        QR main(lit, premise);
+        DHMap<Term*, TermQueryResult>::Iterator itGr(grBound);
+        while (itGr.hasNext()) {
+          auto grTQR = itGr.next();
+          infiniteTQRs.insert(make_pair(main, QR(grTQR.literal, grTQR.clause)));
+          DHMap<Term*, TermQueryResult>::Iterator itLe(leBound);
+          while (itLe.hasNext()) {
+            auto leTQR = itLe.next();
+            auto t = make_tuple(main, QR(grTQR.literal, grTQR.clause), QR(leTQR.literal, leTQR.clause));
+            if (get<2>(t) < get<1>(t)) {
+              swap(get<1>(t),get<2>(t));
+            }
+            finiteTQRs.insert(t);
+          }
+        }
+        DHMap<Term*, TermQueryResult>::Iterator itLe(leBound);
+        while (itLe.hasNext()) {
+          auto leTQR = itLe.next();
+          infiniteTQRs.insert(make_pair(main, QR(leTQR.literal, leTQR.clause)));
+        }
+#endif
+
         List<pair<Literal*, InferenceRule>>::destroy(indLits);
       }
+#ifdef NEW
+      resolveClauses(infiniteTQRs, finiteTQRs);
+#endif
       Set<Term*>::Iterator citer2(ta_terms);
       while(citer2.hasNext()){
         Term* t = citer2.next();
@@ -413,10 +614,10 @@ void InductionClauseIterator::processLiteral(Clause* premise, Literal* lit)
           } while (generalize && (ilit = subsetReplacement.transformSubset(rule)));
         }
       }
-      auto uit = _lis->getUnifications(lit, true, true);
+      auto uit = _lis->getGeneralizations(lit, true, true);
       while (uit.hasNext()) {
         auto qr = uit.next();
-        _clauses.push(BinaryResolution::generateClause(premise, lit, qr, *env.options));
+        _clauses.push(generateClause(premise, lit, qr));
       }
    }
 }
@@ -500,6 +701,43 @@ void InductionClauseIterator::processIntegerComparison(Clause* premise, Literal*
   addToMapFromIterator(leBound, _helper.getLess(lt));
   performIntInductionOnEligibleLiterals(
     lt, generalize ? getPlaceholderForTerm(lt) : lt, _helper.getTQRsForInductionTerm(*lesserTL), /*increasing=*/false, TermQueryResult(*greaterTL, lit, premise), leBound);
+
+#ifdef NEW
+  DHSet<pair<QR, QR>> infiniteTQRs;
+  DHSet<tuple<QR, QR, QR>> finiteTQRs;
+  QR compQr(lit, premise);
+  auto mainGr = _helper.getTQRsForInductionTerm(*greaterTL);
+  while (mainGr.hasNext()) {
+    auto main = mainGr.next();
+    infiniteTQRs.insert(make_pair(QR(main.literal, main.clause), compQr));
+    DHMap<Term*, TermQueryResult>::Iterator itGr(grBound);
+    while (itGr.hasNext()) {
+      auto grTQR = itGr.next();
+      infiniteTQRs.insert(make_pair(QR(main.literal, main.clause), QR(grTQR.literal, grTQR.clause)));
+      auto t = make_tuple(QR(main.literal, main.clause), QR(grTQR.literal, grTQR.clause), compQr);
+      if (get<2>(t) < get<1>(t)) {
+        swap(get<1>(t),get<2>(t));
+      }
+      finiteTQRs.insert(t);
+    }
+  }
+  auto mainLe = _helper.getTQRsForInductionTerm(*lesserTL);
+  while (mainLe.hasNext()) {
+    auto main = mainLe.next();
+    infiniteTQRs.insert(make_pair(QR(main.literal, main.clause), compQr));
+    DHMap<Term*, TermQueryResult>::Iterator itLe(leBound);
+    while (itLe.hasNext()) {
+      auto leTQR = itLe.next();
+      infiniteTQRs.insert(make_pair(QR(main.literal, main.clause), QR(leTQR.literal, leTQR.clause)));
+      auto t = make_tuple(QR(main.literal, main.clause), compQr, QR(leTQR.literal, leTQR.clause));
+      if (get<2>(t) < get<1>(t)) {
+        swap(get<1>(t),get<2>(t));
+      }
+      finiteTQRs.insert(t);
+    }
+  }
+  resolveClauses(infiniteTQRs, finiteTQRs);
+#endif
 }
 
 void InductionClauseIterator::performIntInductionOnEligibleLiterals(Term* origTerm, Term* indTerm, TermQueryResultIterator inductionTQRsIt, bool increasing, TermQueryResult bound1, DHMap<Term*, TermQueryResult>& bounds2) {
@@ -528,7 +766,7 @@ void InductionClauseIterator::performIntInductionOnEligibleLiterals(Term* origTe
   }
 }
 
-void InductionClauseIterator::produceClauses(Clause* premise, Literal* origLit, Literal* conclusion, Formula* hypothesis, InferenceRule rule, const List<pair<Literal*, SLQueryResult>>* toResolve)
+void InductionClauseIterator::produceClauses(Clause* premise, Literal* origLit, Formula* hypothesis, InferenceRule rule, const Stack<pair<Literal*, QR>>& toResolve)
 {
   CALL("InductionClauseIterator::produceClauses");
   NewCNF cnf(0);
@@ -546,33 +784,44 @@ void InductionClauseIterator::produceClauses(Clause* premise, Literal* origLit, 
   // (If hyp_clauses do not contain the literal(s), the clause is a definition from clausification
   // and just keep it as it is.)
   Stack<Clause*>::Iterator cit(hyp_clauses);
+#ifdef NEW
+  auto premises = UnitList::empty();
+#endif
+  vvector<QR> queryCls;
+  LiteralStack lits;
+  for (const auto& kv : toResolve) {
+    queryCls.push_back(kv.second);
+    lits.push(kv.first);
+  }
   while(cit.hasNext()){
     Clause* c = cit.next();
-    if (!toResolve) {
+    if (toResolve.size() == 1) {
       c->setStore(Clause::Store::ACTIVE);
-      if (c->contains(conclusion)) {
-        _lis->insert(conclusion, c);
-      }
+      _lis->insert(toResolve[0].first, c);
     } else {
-      bool resolved = false;
-      List<pair<Literal*, SLQueryResult>>::RefIterator resIt(toResolve);
-      while (resIt.hasNext()) {
-        auto& litAndSLQR = resIt.next();
-        // If litAndSLQR contains a literal present in the clause, resolve it.
-        if(litAndSLQR.first && c->contains(litAndSLQR.first)){
-          if (resolved) {
-            // 'c' is never added to the saturation set, hence we need to call splitter here, before
-            // we apply binary resolution on it.
-            _helper.callSplitterOnNewClause(c);
-          }
-          c = BinaryResolution::generateClause(c,litAndSLQR.first,litAndSLQR.second,*env.options);
-          ASS(c);
-          resolved = true;
-        }
-      }
-      _clauses.push(c);
+#ifdef NEW
+      UnitList::push(c,premises);
+#else
+      _clauses.push(generateClause(queryCls, c, Clause::fromStack(lits, NonspecificInference1(InferenceRule::INDUCTION_AXIOM, c))));
+#endif
     }
   }
+#ifdef NEW
+  auto rc = Clause::fromStack(lits, NonspecificInferenceMany(InferenceRule::INDUCTION_AXIOM, premises));
+  rc->setStore(Clause::ACTIVE);
+  // cout << "insert " << *rc << endl;
+  switch (toResolve.size()) {
+    case 2:
+      _ctInt->insert(rc);
+      break;
+    case 3:
+      _ctIntFin->insert(rc);
+      break;
+    default:
+      break;
+  }
+#endif
+
   env.statistics->induction++;
   if (rule == InferenceRule::GEN_INDUCTION_AXIOM ||
       rule == InferenceRule::INT_INF_UP_GEN_INDUCTION_AXIOM ||
@@ -696,6 +945,7 @@ void InductionClauseIterator::performIntInduction(Clause* premise, Literal* orig
   Formula* FyInterval;
   const bool isDefaultBound = ((bound1.clause == nullptr) || (bound1.literal == nullptr));
   const bool hasBound2 = ((optionalBound2 != nullptr) && (optionalBound2->literal != nullptr));
+  Formula* Lycompb2 = 0;
   if (hasBound2) {
     // Finite interval induction, use two bounds on both x and y.
     rule = getFinRule(rule);
@@ -705,7 +955,7 @@ void InductionClauseIterator::performIntInduction(Clause* premise, Literal* orig
     const bool isBound2Equal = (optionalBound2->literal->functor() == less && optionalBound2->literal->isNegative());
     const bool isBound2FirstArg = (increasing == isBound2Equal);
     // create Y<b2, or Y<=b2 (which is ~b2<Y) or Y>b2, or Y>=b2 (which is ~Y<b2)
-    Formula* Lycompb2 = new AtomicFormula(Literal::create2(
+    Lycompb2 = new AtomicFormula(Literal::create2(
           less, !isBound2Equal, (isBound2FirstArg ? b2 : y), (isBound2FirstArg ? y : b2)));
     FxInterval = new JunctionFormula(Connective::AND, new FormulaList(Lxcompb1, new FormulaList(Lxcompb2, 0)));
     FyInterval = new JunctionFormula(Connective::AND, new FormulaList(Lycompb1, new FormulaList(Lycompb2, 0)));
@@ -727,37 +977,20 @@ void InductionClauseIterator::performIntInduction(Clause* premise, Literal* orig
                    ,0))),
                    Formula::quantify(new BinaryFormula(Connective::IMP,FyInterval,Ly)));
 
-  auto toResolve = List<pair<Literal*, SLQueryResult>>::empty();
+  // Create pairs of Literal* and QR for resolving L[y] and Y>=b (or Y<=b or Y>b or Y<b)
+  static Stack<pair<Literal*, QR>> toResolve(3);
+  toResolve.push(make_pair(Ly->literal(), make_pair(origLit, premise)));
   // Also resolve the hypothesis with comparisons with bound(s) (if the bound(s) are present/not default).
   if (!isDefaultBound) {
-    // After resolving L[y], 'y' will be already substituted by 'term'.
-    // Therefore, the second (and third) substitution(s) is/are empty.
-    static ResultSubstitutionSP identity = ResultSubstitutionSP(new IdentitySubstitution());
-    List<pair<Literal*, SLQueryResult>>::push(make_pair(
-        Literal::complementaryLiteral(bound1.literal),
-        SLQueryResult(bound1.literal, bound1.clause, identity)),
-      toResolve);
+    toResolve.push(make_pair(Literal::complementaryLiteral(Lycompb1->literal()), make_pair(bound1.literal, bound1.clause)));
     // If there is also a second bound, add that to the list as well.
     if (hasBound2) {
-      List<pair<Literal*, SLQueryResult>>::push(make_pair(
-          Literal::complementaryLiteral(optionalBound2->literal),
-          SLQueryResult(optionalBound2->literal, optionalBound2->clause, identity)),
-        toResolve);
+      toResolve.push(make_pair(Literal::complementaryLiteral(Lycompb2->literal()), make_pair(optionalBound2->literal, optionalBound2->clause)));
     }
   }
 
-  // Create pairs of Literal* and SLQueryResult for resolving L[y] and Y>=b (or Y<=b or Y>b or Y<b)
-  static ScopedPtr<RobSubstitution> subst(new RobSubstitution());
-  // When producing clauses, 'y' should be unified with 'term'
-  ALWAYS(subst->unify(TermList(term), 0, y, 1));
-  ResultSubstitutionSP resultSubst = ResultSubstitution::fromSubstitution(subst.ptr(), 1, 0);
-  List<pair<Literal*, SLQueryResult>>::push(make_pair(
-      Ly->literal(),
-      SLQueryResult(origLit, premise, resultSubst)),
-    toResolve);
-  produceClauses(premise, lit, 0, hyp, rule, toResolve);
-  List<pair<Literal*, SLQueryResult>>::destroy(toResolve);
-  subst->reset();
+  produceClauses(premise, lit, hyp, rule, toResolve);
+  toResolve.reset();
 }
 
 /**
@@ -815,7 +1048,9 @@ void InductionClauseIterator::performStructInductionOne(Clause* premise, Literal
                             Formula::quantify(indPremise),
                             Formula::quantify(new AtomicFormula(conclusion)));
 
-  produceClauses(premise, origLit, conclusion, hypothesis, rule, 0);
+  Stack<pair<Literal*, QR>> toResolve(1);
+  toResolve.push(make_pair(conclusion, make_pair(origLit, premise)));
+  produceClauses(premise, origLit, hypothesis, rule, toResolve);
 }
 
 /**
@@ -888,7 +1123,9 @@ void InductionClauseIterator::performStructInductionTwo(Clause* premise, Literal
   auto orf = FormulaList::cons(exists,FormulaList::singleton(Formula::quantify(new AtomicFormula(conclusion))));
   Formula* hypothesis = new JunctionFormula(Connective::OR,orf);
 
-  produceClauses(premise, origLit, conclusion, hypothesis, rule, 0);
+  Stack<pair<Literal*, QR>> toResolve(1);
+  toResolve.push(make_pair(conclusion, make_pair(origLit, premise)));
+  produceClauses(premise, origLit, hypothesis, rule, toResolve);
 }
 
 /*
@@ -994,7 +1231,9 @@ void InductionClauseIterator::performStructInductionThree(Clause* premise, Liter
   auto orf = FormulaList::cons(exists,FormulaList::singleton(Formula::quantify(new AtomicFormula(conclusion))));
   Formula* hypothesis = new JunctionFormula(Connective::OR,orf);
 
-  produceClauses(premise, origLit, conclusion, hypothesis, rule, 0);
+  Stack<pair<Literal*, QR>> toResolve(1);
+  toResolve.push(make_pair(conclusion, make_pair(origLit, premise)));
+  produceClauses(premise, origLit, hypothesis, rule, toResolve);
 }
 
 bool InductionClauseIterator::notDone(Literal* lit, Term* term)
