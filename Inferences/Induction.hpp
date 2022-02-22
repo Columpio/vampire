@@ -53,8 +53,8 @@ private:
 
 class LiteralSubsetReplacement : TermTransformer {
 public:
-  LiteralSubsetReplacement(Literal* lit, Term* o, TermList r)
-      : _lit(lit), _o(o), _r(r) {
+  LiteralSubsetReplacement(Literal* lit, Term* o, TermList r, const unsigned maxSubsetSize)
+      : _lit(lit), _o(o), _r(r), _maxSubsetSize(maxSubsetSize) {
     _occurrences = _lit->countSubtermOccurrences(TermList(_o));
     _maxIterations = pow(2, _occurrences);
   }
@@ -80,6 +80,7 @@ private:
   Literal* _lit;
   Term* _o;
   TermList _r;
+  const unsigned _maxSubsetSize;
 };
 
 class Induction
@@ -119,9 +120,9 @@ class InductionClauseIterator
 {
 public:
   // all the work happens in the constructor!
-  InductionClauseIterator(Clause* premise, InductionHelper helper,
+  InductionClauseIterator(Clause* premise, InductionHelper helper, const Options& opt,
     LiteralIndexingStructure* lis, ClauseCodeTree* ctIntFin, ClauseCodeTree* ctInt)
-    : _clauses(), _helper(helper), _lis(lis), _ctIntFin(ctIntFin), _ctInt(ctInt)
+    : _clauses(), _helper(helper), _opt(opt), _lis(lis), _ctIntFin(ctIntFin), _ctInt(ctInt)
   {
     processClause(premise);
   }
@@ -133,7 +134,7 @@ public:
   inline bool hasNext() { return _clauses.isNonEmpty(); }
   inline OWN_ELEMENT_TYPE next() { 
     Clause* c = _clauses.pop();
-    if(env.options->showInduction()){
+    if(_opt.showInduction()){
       env.beginOutput();
       env.out() << "[Induction] generate " << c->toString() << endl; 
       env.endOutput();
@@ -179,6 +180,7 @@ private:
 
   Stack<Clause*> _clauses;
   InductionHelper _helper;
+  const Options& _opt;
   LiteralIndexingStructure* _lis;
   ClauseCodeTree* _ctIntFin;
   ClauseCodeTree* _ctInt;

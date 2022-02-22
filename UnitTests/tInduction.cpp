@@ -29,17 +29,24 @@ LiteralIndex* comparisonIndex() {
   return new UnitIntegerComparisonLiteralIndex(new LiteralSubstitutionTree());
 }
 
-template<class Rule>
 class GenerationTesterInduction
-  : public GenerationTester<Rule>
+  : public GenerationTester<Induction>
 {
 public:
-  GenerationTesterInduction(Rule* rule)
-    : GenerationTester<Rule>(rule), _subst()
+  GenerationTesterInduction()
+    : GenerationTester<Induction>(), _subst()
   {}
 
+  /**
+   * Generated induction clauses are special in that they contain fresh
+   * Skolem constants. In order to check these, we use variables instead
+   * of the constants we cannot predefine, and require that these variables
+   * are mapped bijectively to the new Skolem constants, hence this override.
+   */
   bool eq(Kernel::Clause const* lhs, Kernel::Clause const* rhs) override
   {
+    // there can be false positive matches which later (in a different literal
+    // or clause) can turn out to be the wrong ones and we have to backtrack
     BacktrackData btd;
     _subst.bdRecord(btd);
     if (!TestUtils::permEq(*lhs, *rhs, [this](Literal* l, Literal* r) -> bool {
@@ -54,9 +61,7 @@ public:
           return false;
         }
       }
-      // since we may have non-ground hypothesis, and checking those might give false
-      // positive matches where multiple variables are mapped to the same term unintentionally,
-      // we check whether all variables within a possible range have different mapped values
+      // we check that so far each variable is mapped to a unique Skolem constant
       DHMap<TermList, unsigned> inverse;
       for (unsigned i = 0; i < VARS; i++) {
         if (!_subst.isUnbound(i, 0)) {
@@ -85,14 +90,14 @@ private:
 
 #define TEST_GENERATION_INDUCTION(name, ...)                                                                  \
   TEST_FUN(name) {                                                                                            \
-    GenerationTesterInduction<Induction> tester(new Induction());                                             \
+    GenerationTesterInduction tester;                                                                         \
     __ALLOW_UNUSED(MY_SYNTAX_SUGAR)                                                                           \
     auto test = __VA_ARGS__;                                                                                  \
     test.run(tester);                                                                                         \
   }                                                                                                           \
 
 /**
- * NECESSARY: We neet to tell the tester which syntax sugar to import for creating terms & clauses. 
+ * NECESSARY: We need to tell the tester which syntax sugar to import for creating terms & clauses.
  * See Test/SyntaxSugar.hpp for which kinds of syntax sugar are available
  */
 #define MY_SYNTAX_SUGAR                                                                    \
@@ -142,9 +147,9 @@ private:
   NUMBER_SUGAR(Int)                                                                        \
   DECL_PRED(pi, {Int})                                                                     \
   DECL_FUNC(fi, {Int, s}, Int)                                                             \
-  DECL_SKOLEM_CONST(sK6, Int)                                                              \
-  DECL_SKOLEM_CONST(sK7, Int)                                                              \
-  DECL_SKOLEM_CONST(sK8, Int)                                                              \
+  DECL_CONST(sK6, Int)                                                                     \
+  DECL_CONST(sK7, Int)                                                                     \
+  DECL_CONST(sK8, Int)                                                                     \
   DECL_CONST(bi, Int)
 
 // positive literals are not considered 1
@@ -465,7 +470,7 @@ TEST_GENERATION_INDUCTION(test_16,
         clause({ ~pi(0), pi(x) }),
         clause({ ~pi(0), ~pi(x+1) }),
 
-        // downard induction: resulting clauses contain "0 < sK6",
+        // downward induction: resulting clauses contain "0 < sK6",
         // since there is no bound to resolve it against
         clause({ ~pi(0), ~(num(0) < y), 0 < sK6 }),
         clause({ ~pi(0), pi(y), 0 < sK6 }),
