@@ -436,7 +436,7 @@ private:
   bool ready;
   Clause* result;
   int resolvedQueryLit;
-  ClauseCodeTree::ClauseMatcher<Clause>* cm;
+  ClauseCodeTree::ClauseMatcher* cm;
 };
 
 void CodeTreeSubsumptionIndex::handleClause(Clause* cl, bool adding)

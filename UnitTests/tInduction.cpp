@@ -133,7 +133,6 @@ private:
   DECL_TERM_ALGEBRA(s, {b, r})                                                             \
   __ALLOW_UNUSED(                                                                          \
     auto r0 = r.dtor(0);                                                                   \
-    auto subterm_s = subtermRelationOfTaSort(s);                                           \
   )                                                                                        \
   DECL_CONST(b1, u)                                                                        \
   DECL_CONST(b2, u)                                                                        \
@@ -207,27 +206,19 @@ TEST_GENERATION_INDUCTION(test_05,
       })
     )
 
-// TODO this case is a bit hard to test since new predicates are introduced
-// normal case sik=three
-TEST_GENERATION_INDUCTION(test_06,
-    Generation::TestCase()
-      .options({ { "induction", "struct" }, { "structural_induction_kind", "three" } })
-      .indices({ comparisonIndex() })
-      .input( clause({  f(sK1,sK2) != g(sK1) }))
-      .expected({
-        // sK1
-        clause({ f(x,sK2) != g(x) }),
-        clause({ x != r(r0(x)), subterm_s(r0(x),x) }),
-        clause({ ~subterm_s(y,x), f(y,sK2) == g(y) }),
-        clause({ ~subterm_s(r(z),x), subterm_s(z,x) }),
-
-        // sK2
-        clause({ f(sK1,x3) != g(sK1) }),
-        clause({ x3 != r(r0(x3)), subterm_s(r0(x3),x3) }),
-        clause({ ~subterm_s(x4,x3), f(sK1,x4) == g(sK1) }),
-        clause({ ~subterm_s(r(x5),x3), subterm_s(x5,x3) })
-      })
-    )
+// TODO this case is a bit hard to test since new predicates are introduced,
+// so we need to customize the test suite for this even more, checking certain
+// properties of these new predicates and matching it with some literals.
+// This induction mode is not that useful compared to other sik modes to make
+// the effort worthwhile.
+// // normal case sik=three
+// TEST_GENERATION_INDUCTION(test_06,
+//     Generation::TestCase()
+//       .options({ { "induction", "struct" }, { "structural_induction_kind", "three" } })
+//       .indices({ comparisonIndex() })
+//       .input( clause({  f(sK1,sK2) != g(sK1) }))
+//       .expected({ })
+//     )
 
 // generalizations
 TEST_GENERATION_INDUCTION(test_07,
@@ -381,7 +372,6 @@ TEST_GENERATION_INDUCTION(test_11,
     )
 
 // "same induction" (i.e. generalized literal is same) is not done twice
-// but resolved with second literal as well
 //
 // TODO: this should be done with two inputs rather than with a non-unit clause
 TEST_GENERATION_INDUCTION(test_12,
@@ -392,13 +382,9 @@ TEST_GENERATION_INDUCTION(test_12,
       .expected({
         clause({ b != g(b), x == g(x), sK2 != g(sK2) }),
         clause({ b != g(b), r(x) != g(r(x)), sK2 != g(sK2) }),
-        clause({ b != g(b), x == g(x), sK1 != g(sK1) }),
-        clause({ b != g(b), r(x) != g(r(x)), sK1 != g(sK1) }),
       })
     )
 
-// bounds are used for integer induction even when multi-clause is off 
-// (strictness 0 means that the bound is eligible as a side as well)
 TEST_GENERATION_INDUCTION(test_13,
     Generation::TestCase()
       .options({ { "induction", "int" } })
@@ -521,33 +507,3 @@ TEST_GENERATION_INDUCTION(test_18,
         clause({ f(x14,x15) != g(x11) }),
       })
     )
-
-// // all skolems are replaced when the hypothesis strengthening options is on, sik=three
-// // TODO: adding the expected clauses in order of induction on sK1, sK2, sK3 does not work,
-// // probably we have to backtrack the substitution even more during matching the clauses
-// TEST_GENERATION_INDUCTION(test_19,
-//     Generation::TestCase()
-//       .options({ { "induction", "struct" }, { "structural_induction_kind", "three" },
-//                  { "induction_strengthen_hypothesis", "on" } })
-//       .indices({ comparisonIndex() })
-//       .input( clause({ f(sK1,sK2) != g(sK3) }) )
-//       .expected({
-//         // sK2
-//         clause({ f(x7,x8) != g(x9) }),
-//         clause({ x8 != r(r0(x8)), subterm_s(r0(x8),x8) }),
-//         clause({ ~subterm_s(x10,x8), f(x11,x10) == g(x12) }),
-//         clause({ ~subterm_s(r(x13),x8), subterm_s(x13,x8) }),
-
-//         // sK3
-//         clause({ f(x14,x15) != g(x16) }),
-//         clause({ x16 != r(r0(x16)), subterm_s(r0(x16),x16) }),
-//         clause({ ~subterm_s(x17,x16), f(x18,x19) == g(x17) }),
-//         clause({ ~subterm_s(r(x20),x16), subterm_s(x20,x16) }),
-
-//         // sK1
-//         clause({ f(x,y) != g(z) }),
-//         clause({ x != r(r0(x)), subterm_s(r0(x),x) }),
-//         clause({ ~subterm_s(x3,x), f(x3,x4) == g(x5) }),
-//         clause({ ~subterm_s(r(x6),x), subterm_s(x6,x) }),
-//       })
-//     )

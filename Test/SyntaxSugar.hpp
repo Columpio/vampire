@@ -488,8 +488,6 @@ class PredSugar {
   unsigned _functor;
 
 public:
-  explicit PredSugar(unsigned functor) : _functor(functor) {}
-
   PredSugar(const char* name, Stack<SortSugar> args) 
   {
     BYPASSING_ALLOCATOR
@@ -573,11 +571,6 @@ inline void createTermAlgebra(SortSugar sort, initializer_list<FuncSugar> fs) {
   }
   auto ta = new TermAlgebra(sort.sortId(), cons.size(), cons.begin());
   env.signature->addTermAlgebra(ta);
-}
-
-inline PredSugar subtermRelationOfTaSort(SortSugar s) {
-  Shell::TermAlgebra* ta = env.signature->getTermAlgebraOfSort(s._srt);
-  return PredSugar(ta->getSubtermPredicate());
 }
 
 #endif // __TEST__SYNTAX_SUGAR__H__

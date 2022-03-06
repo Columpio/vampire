@@ -65,14 +65,7 @@ public:
   struct LitInfo
   {
     LitInfo() {}
-    template<class Array>
-    LitInfo(Array* cl, unsigned litIndex)
-    : litIndex(litIndex), opposite(false)
-    {
-      CALL("CodeTree::LitInfo::LitInfo");
-
-      ft=FlatTerm::create((*cl)[litIndex]);
-    }
+    LitInfo(Clause* cl, unsigned litIndex);
     void dispose();
 
     static LitInfo getReversed(const LitInfo& li);
