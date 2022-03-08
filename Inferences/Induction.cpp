@@ -346,7 +346,7 @@ void InductionClauseIterator::processLiteral(Clause* premise, Literal* lit)
 
   static bool generalize = _opt.inductionGen();
 
-  if (InductionHelper::isInductionLiteral(lit)) {
+  if(InductionHelper::isInductionLiteral(lit)){
       Set<Term*> ta_terms;
       Set<Term*> int_terms;
       //TODO this should be a non-variable non-type iterator it seems
@@ -354,7 +354,7 @@ void InductionClauseIterator::processLiteral(Clause* premise, Literal* lit)
       while(it.hasNext()){
         TermList ts = it.next();
         if(!ts.isTerm()){ continue; }
-        unsigned f = ts.term()->functor();
+        unsigned f = ts.term()->functor(); 
         if(InductionHelper::isInductionTermFunctor(f)){
           if(InductionHelper::isStructInductionOn() && InductionHelper::isStructInductionFunctor(f)){
             ta_terms.insert(ts.term());
@@ -407,7 +407,7 @@ void InductionClauseIterator::processLiteral(Clause* premise, Literal* lit)
             }
           } while (generalize && (ilit = subsetReplacement.transformSubset(rule)));
         }
-      }
+      } 
    }
 }
 
@@ -760,39 +760,43 @@ void InductionClauseIterator::performStructInductionOne(Clause* premise, Literal
   CALL("InductionClauseIterator::performStructInductionOne"); 
 
   TermAlgebra* ta = env.signature->getTermAlgebraOfSort(env.signature->getFunction(term->functor())->fnType()->result());
+  TermList ta_sort = ta->sort();
+
   FormulaList* formulas = FormulaList::empty();
   static const bool strengthenHyp = _opt.inductionStrengthenHypothesis();
 
   Literal* clit = Literal::complementaryLiteral(lit);
   unsigned var = 0;
 
-  for(unsigned i = 0; i < ta->nConstructors(); i++) {
+  // first produce the formula
+  for(unsigned i=0;i<ta->nConstructors();i++){
     TermAlgebraConstructor* con = ta->constructor(i);
-
-    Stack<TermList> argTerms;
-    Stack<TermList> ta_vars;
-    for (unsigned j = 0; j < con->arity(); j++) {
-      TermList x(var++,false);
-      if (con->argSort(j) == ta->sort()) {
-        ta_vars.push(x);
+    unsigned arity = con->arity();
+      Stack<TermList> argTerms;
+      Stack<TermList> ta_vars;
+      for(unsigned j=0;j<arity;j++){
+        TermList x(var,false);
+        var++;
+        if(con->argSort(j) == ta_sort){
+          ta_vars.push(x);
+        }
+        argTerms.push(x);
       }
-      argTerms.push(x);
-    }
-    TermReplacement cr(term,TermList(Term::create(con->functor(),(unsigned)argTerms.size(), argTerms.begin())), strengthenHyp, &var);
-    Formula* right = new AtomicFormula(cr.transform(clit));
-    FormulaList* args = FormulaList::empty();
-    Stack<TermList>::Iterator tvit(ta_vars);
-    while(tvit.hasNext()){
-      TermReplacement cr(term,tvit.next(),strengthenHyp,&var);
-      Formula* hyp = new AtomicFormula(cr.transform(clit));
-      auto hypVars = cr.getUsedVars();
-      if (hypVars) {
-        hyp = new QuantifiedFormula(Connective::FORALL, hypVars, SList::empty(), hyp);
+      TermReplacement cr(term,TermList(Term::create(con->functor(),(unsigned)argTerms.size(), argTerms.begin())), strengthenHyp, &var);
+      Formula* right = new AtomicFormula(cr.transform(clit));
+      FormulaList* args = FormulaList::empty();
+      Stack<TermList>::Iterator tvit(ta_vars);
+      while(tvit.hasNext()){
+        TermReplacement cr(term,tvit.next(),strengthenHyp,&var);
+        Formula* hyp = new AtomicFormula(cr.transform(clit));
+        auto hypVars = cr.getUsedVars();
+        if (hypVars) {
+          hyp = new QuantifiedFormula(Connective::FORALL, hypVars, SList::empty(), hyp);
+        }
+        FormulaList::push(hyp,args);
       }
-      FormulaList::push(hyp,args);
-    }
-    FormulaList::push(args ?
-      new BinaryFormula(Connective::IMP,JunctionFormula::generalJunction(Connective::AND,args),right) : right, formulas);
+      FormulaList::push(args ?
+        new BinaryFormula(Connective::IMP,JunctionFormula::generalJunction(Connective::AND,args),right) : right, formulas);
   }
   ASS(formulas);
   Formula* indPremise = JunctionFormula::generalJunction(Connective::AND,formulas);
@@ -823,8 +827,8 @@ void InductionClauseIterator::performStructInductionTwo(Clause* premise, Literal
   static const bool strengthenHyp = _opt.inductionStrengthenHypothesis();
 
   // make L[y]
+  TermList y(0,false); 
   unsigned var = 1;
-  TermList y(0,false);
   TermReplacement cr(term,y,strengthenHyp,&var);
   Literal* Ly = cr.transform(lit);
   auto mainVars = VList::cons(y.var(),cr.getUsedVars());
@@ -835,12 +839,14 @@ void InductionClauseIterator::performStructInductionTwo(Clause* premise, Literal
 
   for(unsigned i=0;i<ta->nConstructors();i++){
     TermAlgebraConstructor* con = ta->constructor(i);
-    if(con->recursive()){
+    unsigned arity = con->arity();
 
+    if(con->recursive()){
+  
       // First generate all argTerms and remember those that are of sort ta_sort 
       Stack<TermList> argTerms;
       Stack<TermList> taTerms; 
-      for(unsigned j=0;j<con->arity();j++){
+      for(unsigned j=0;j<arity;j++){
         unsigned dj = con->destructorFunctor(j);
         TermList djy(Term::create1(dj,y));
         argTerms.push(djy);
@@ -858,7 +864,7 @@ void InductionClauseIterator::performStructInductionTwo(Clause* premise, Literal
         TermList djy = tit.next();
         TermReplacement cr(term,djy,strengthenHyp,&var);
         Literal* nLdjy = cr.transform(clit);
-        Formula* f = new AtomicFormula(nLdjy);
+        Formula* f = new AtomicFormula(nLdjy); 
         auto hypVars = cr.getUsedVars();
         if (hypVars) {
           f = new QuantifiedFormula(Connective::FORALL, hypVars, SList::empty(), f);
@@ -875,7 +881,7 @@ void InductionClauseIterator::performStructInductionTwo(Clause* premise, Literal
   Formula* exists = new QuantifiedFormula(Connective::EXISTS, mainVars,SList::empty(),
                         formulas ? new JunctionFormula(Connective::AND,FormulaList::cons(new AtomicFormula(Ly),formulas))
                                  : static_cast<Formula*>(new AtomicFormula(Ly)));
-
+  
   TermReplacement cr2(term,TermList(var++,false),strengthenHyp,&var);
   Literal* conclusion = cr2.transform(clit);
   FormulaList* orf = FormulaList::cons(exists,FormulaList::singleton(Formula::quantify(new AtomicFormula(conclusion))));
@@ -907,9 +913,11 @@ void InductionClauseIterator::performStructInductionThree(Clause* premise, Liter
   static const bool strengthenHyp = _opt.inductionStrengthenHypothesis();
 
   // make L[y]
-  unsigned var = 1;
-  TermList y(0,false);
-  TermReplacement cr(term,y,strengthenHyp,&var);
+  TermList x(0,false); 
+  TermList y(1,false); 
+  TermList z(2,false); 
+  unsigned vars = 3;
+  TermReplacement cr(term,y,strengthenHyp,&vars);
   Literal* Ly = cr.transform(lit);
   auto mainVars = VList::cons(y.var(),cr.getUsedVars());
 
@@ -921,24 +929,25 @@ void InductionClauseIterator::performStructInductionThree(Clause* premise, Liter
   FormulaList* conjunction = FormulaList::singleton(new AtomicFormula(Ly));
   for(unsigned i=0;i<ta->nConstructors();i++){
     TermAlgebraConstructor* con = ta->constructor(i);
-    if(con->recursive()){
+    unsigned arity = con->arity();
 
+    if(con->recursive()){
       // First generate all argTerms and remember those that are of sort ta_sort 
       Stack<TermList> argTerms;
       Stack<TermList> taTerms; 
       Stack<unsigned> ta_vars;
       Stack<TermList> varTerms;
-      for(unsigned j=0;j<con->arity();j++){
+      for(unsigned j=0;j<arity;j++){
         unsigned dj = con->destructorFunctor(j);
         TermList djy(Term::create1(dj,y));
         argTerms.push(djy);
-        TermList xj(var,false);
+        TermList xj(vars,false);
         varTerms.push(xj);
         if(con->argSort(j) == ta_sort){
           taTerms.push(djy);
-          ta_vars.push(var);
+          ta_vars.push(vars);
         }
-        var++;
+        vars++;
       }
       // create y = con1(...d1(y)...d2(y)...)
       TermList coni(Term::create(con->functor(),(unsigned)argTerms.size(), argTerms.begin()));
@@ -974,8 +983,7 @@ void InductionClauseIterator::performStructInductionThree(Clause* premise, Liter
     } 
   }
   // now !z : smallerThanY(z) => ~L[z]
-  TermList z(var++,false);
-  TermReplacement cr2(term,z,strengthenHyp,&var);
+  TermReplacement cr2(term,z,strengthenHyp,&vars);
   Formula* smallerImpNL = Formula::quantify(new BinaryFormula(Connective::IMP, 
                             new AtomicFormula(Literal::create1(sty,true,z)),
                             new AtomicFormula(cr2.transform(clit))));
@@ -984,8 +992,7 @@ void InductionClauseIterator::performStructInductionThree(Clause* premise, Liter
   Formula* exists = new QuantifiedFormula(Connective::EXISTS, mainVars,SList::empty(),
                        new JunctionFormula(Connective::AND,conjunction));
 
-  TermList x(var++,false);
-  TermReplacement cr3(term,x,strengthenHyp,&var);
+  TermReplacement cr3(term,x,strengthenHyp,&vars);
   Literal* conclusion = cr3.transform(clit);
   FormulaList* orf = FormulaList::cons(exists,FormulaList::singleton(Formula::quantify(new AtomicFormula(conclusion))));
   Formula* hypothesis = new JunctionFormula(Connective::OR,orf);
