@@ -42,11 +42,19 @@ using namespace Saturation;
 class TermReplacement : public TermTransformer {
 
 public:
-  TermReplacement(Term* o, TermList r) : _o(o), _r(r) {} 
-  virtual TermList transformSubterm(TermList trm);
+  TermReplacement(Term* o, TermList r, bool replaceSkolems = false, unsigned* var = nullptr)
+    : _o(o), _r(r), _v(var), _replaceSkolems(replaceSkolems)
+  {
+    ASS(!replaceSkolems || var);
+  }
+  TermList transformSubterm(TermList trm) override;
+  VList* getUsedVars() const;
 private:
   Term* _o;
   TermList _r;
+  unsigned* _v;
+  bool _replaceSkolems;
+  DHMap<Term*, unsigned> _tv;
 };
 
 class LiteralSubsetReplacement : TermTransformer {
