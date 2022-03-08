@@ -305,11 +305,11 @@ void Induction::detach() {
   CALL("Induction::detach");
 
   if (InductionHelper::isIntInductionOn()) {
-    _comparisonIndex = 0;
+    _comparisonIndex = nullptr;
     _salg->getIndexManager()->release(UNIT_INT_COMPARISON_INDEX);
   }
   if (InductionHelper::isIntInductionTwoOn()) {
-    _inductionTermIndex = 0;
+    _inductionTermIndex = nullptr;
     _salg->getIndexManager()->release(INDUCTION_TERM_INDEX);
   }
   GeneratingInferenceEngine::detach();
@@ -701,8 +701,8 @@ void InductionClauseIterator::performIntInduction(Clause* premise, Literal* orig
     // create Y<b2, or Y<=b2 (which is ~b2<Y) or Y>b2, or Y>=b2 (which is ~Y<b2)
     Formula* Lycompb2 = new AtomicFormula(Literal::create2(
           less, !isBound2Equal, (isBound2FirstArg ? b2 : y), (isBound2FirstArg ? y : b2)));
-    FxInterval = new JunctionFormula(Connective::AND, new FormulaList(Lxcompb1, new FormulaList(Lxcompb2, 0)));
-    FyInterval = new JunctionFormula(Connective::AND, new FormulaList(Lycompb1, new FormulaList(Lycompb2, 0)));
+    FxInterval = new JunctionFormula(Connective::AND, FormulaList::cons(Lxcompb1, FormulaList::singleton(Lxcompb2)));
+    FyInterval = new JunctionFormula(Connective::AND, FormulaList::cons(Lycompb1, FormulaList::singleton(Lycompb2)));
   } else {
     // Infinite interval induction (either with default bound or not), use only one bound on both x and y.
     if (isDefaultBound) rule = getDBRule(rule);
@@ -714,11 +714,10 @@ void InductionClauseIterator::performIntInduction(Clause* premise, Literal* orig
   // Create the hypothesis, with FxInterval and FyInterval being as described
   // in the comment above this function.
   Formula* hyp = new BinaryFormula(Connective::IMP,
-                   new JunctionFormula(Connective::AND,new FormulaList(Lb1,new FormulaList(
+                   new JunctionFormula(Connective::AND,FormulaList::cons(Lb1,FormulaList::singleton(
                      Formula::quantify(new BinaryFormula(Connective::IMP,
-                       new JunctionFormula(Connective::AND, new FormulaList(FxInterval,new FormulaList(Lx,0))),
-                       Lxpo))
-                   ,0))),
+                       new JunctionFormula(Connective::AND, FormulaList::cons(FxInterval,FormulaList::singleton(Lx))),
+                       Lxpo))))),
                    Formula::quantify(new BinaryFormula(Connective::IMP,FyInterval,Ly)));
   
   auto toResolve = List<pair<Literal*, SLQueryResult>>::empty();
@@ -793,16 +792,15 @@ void InductionClauseIterator::performStructInductionOne(Clause* premise, Literal
       TermReplacement cr(term,tvit.next());
       FormulaList::push(new AtomicFormula(replaceTermsWithFreshVariables(skolems, cr.transform(clit), var, &hypVars)),args);
     }
-    Formula* left = args ? JunctionFormula::generalJunction(Connective::AND,args) : 0;
+    Formula* left = args ? JunctionFormula::generalJunction(Connective::AND,args) : nullptr;
     if (hypVars) {
       ASS(left);
-      left = new QuantifiedFormula(Connective::FORALL, hypVars, 0, left);
+      left = new QuantifiedFormula(Connective::FORALL, hypVars, SList::empty(), left);
     }
     FormulaList::push(left ? new BinaryFormula(Connective::IMP,left,right) : right, formulas);
   }
-  ASS_G(FormulaList::length(formulas), 0);
-  Formula* indPremise = FormulaList::length(formulas) > 1 ? new JunctionFormula(Connective::AND,formulas)
-                                                          : formulas->head();
+  ASS(formulas);
+  Formula* indPremise = JunctionFormula::generalJunction(Connective::AND,formulas);
   TermReplacement cr(term,TermList(var++,false));
   Literal* conclusion = replaceTermsWithFreshVariables(skolems, cr.transform(clit), var);
   Formula* hypothesis = new BinaryFormula(Connective::IMP,
@@ -868,7 +866,7 @@ void InductionClauseIterator::performStructInductionTwo(Clause* premise, Literal
         auto hypVars = VList::empty();
         Formula* f = new AtomicFormula(replaceTermsWithFreshVariables(skolems,nLdjy,var,&hypVars));
         if (hypVars) {
-          f = new QuantifiedFormula(Connective::FORALL, hypVars, 0, f);
+          f = new QuantifiedFormula(Connective::FORALL, hypVars, SList::empty(), f);
         }
         FormulaList::push(f,And);
       }
@@ -879,8 +877,9 @@ void InductionClauseIterator::performStructInductionTwo(Clause* premise, Literal
       FormulaList::push(imp,formulas);
     }
   }
-  Formula* exists = new QuantifiedFormula(Connective::EXISTS, mainVars,0,
-                        JunctionFormula::generalJunction(Connective::AND,FormulaList::cons(new AtomicFormula(Ly),formulas)));
+  Formula* exists = new QuantifiedFormula(Connective::EXISTS, mainVars,SList::empty(),
+                        formulas ? new JunctionFormula(Connective::AND,FormulaList::cons(new AtomicFormula(Ly),formulas))
+                                 : static_cast<Formula*>(new AtomicFormula(Ly)));
 
   TermReplacement cr2(term,TermList(var++,false));
   Literal* conclusion = replaceTermsWithFreshVariables(skolems, cr2.transform(clit), var);
@@ -954,13 +953,13 @@ void InductionClauseIterator::performStructInductionThree(Clause* premise, Liter
       Formula* smaller_coni = new AtomicFormula(Literal::create1(sty,true,
                                 TermList(Term::create(con->functor(),(unsigned)varTerms.size(),varTerms.begin()))));
 
-      FormulaList* smallers = 0;
+      FormulaList* smallers = FormulaList::empty();
       Stack<unsigned>::Iterator vtit(ta_vars);
       while(vtit.hasNext()){
         FormulaList::push(new AtomicFormula(Literal::create1(sty,true,TermList(vtit.next(),false))),smallers);
       }
       ASS(smallers);
-      Formula* ax = Formula::quantify(new BinaryFormula(Connective::IMP,smaller_coni, 
+      Formula* ax = Formula::quantify(new BinaryFormula(Connective::IMP,smaller_coni,
                       JunctionFormula::generalJunction(Connective::AND,smallers)));
 
       // now create a conjunction of smaller(d(y)) for each d
@@ -977,7 +976,7 @@ void InductionClauseIterator::performStructInductionThree(Clause* premise, Liter
 
       FormulaList::push(imp,conjunction);
       FormulaList::push(ax,conjunction);
-    }
+    } 
   }
   // now !z : smallerThanY(z) => ~L[z]
   TermList z(var++,false);
@@ -987,7 +986,7 @@ void InductionClauseIterator::performStructInductionThree(Clause* premise, Liter
                             new AtomicFormula(replaceTermsWithFreshVariables(skolems, cr2.transform(clit), var))));
 
   FormulaList::push(smallerImpNL,conjunction);
-  Formula* exists = new QuantifiedFormula(Connective::EXISTS, mainVars,0,
+  Formula* exists = new QuantifiedFormula(Connective::EXISTS, mainVars,SList::empty(),
                        new JunctionFormula(Connective::AND,conjunction));
 
   TermList x(var++,false);
