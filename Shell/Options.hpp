@@ -382,6 +382,7 @@ public:
     PROFILE,
     RANDOM_STRATEGY,
     SMTCOMP,
+    CHCCOMP,
     SPIDER,
     TCLAUSIFY,
     TPREPROCESS,
@@ -403,6 +404,7 @@ public:
     LTB_MZR_2017,
     SMTCOMP,
     SMTCOMP_2018,
+    CHC_COMP,
     STRUCT_INDUCTION
   };
 

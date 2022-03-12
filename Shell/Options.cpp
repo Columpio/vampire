@@ -114,6 +114,7 @@ void Options::init()
                                         "profile",
                                         "random_strategy",
                                         "smtcomp",
+                                        "chccomp",
                                         "spider",
                                         "tclausify",
                                         "tpreprocess",
@@ -122,7 +123,7 @@ void Options::init()
     "Select the mode of operation. Choices are:\n"
     "  -vampire: the standard mode of operation for first-order theorem proving\n"
     "  -portfolio: a portfolio mode running a specified schedule (see schedule)\n"
-    "  -casc, casc_sat, smtcomp - like portfolio mode, with competition specific\n     presets for schedule, etc.\n"
+    "  -casc, casc_sat, smtcomp, chccomp - like portfolio mode, with competition specific\n     presets for schedule, etc.\n"
     "  -preprocess,axiom_selection,clausify,grounding: modes for producing output\n      for other solvers.\n"
     "  -tpreprocess,tclausify: output modes for theory input (clauses are quantified\n      with sort information).\n"
     "  -output,profile: output information about the problem\n"
@@ -138,6 +139,7 @@ void Options::init()
       return Or(_mode.is(equal(Mode::CASC_HOL)),
                 _mode.is(equal(Mode::CASC)),
                 _mode.is(equal(Mode::CASC_SAT)),
+                _mode.is(equal(Mode::CHCCOMP)),
                 _mode.is(equal(Mode::SMTCOMP)),
                 _mode.is(equal(Mode::PORTFOLIO)));
     };
