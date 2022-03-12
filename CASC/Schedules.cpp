@@ -1420,6 +1420,35 @@ void Schedules::getCasc2019Schedule(const Property& property, Schedule& quick, S
   fallback.push("dis+11_1_3600");
 } // getCasc2019Schedule
 
+void Schedules::getCHCCompSchedule(const Property& property, Schedule& quick, Schedule& fallback) {
+  // sat with saturation
+  quick.push("lrs+2_1_lcm=predicate_20");         // first >= 2, second any
+  // sat with finite model
+  quick.push("fmb+10_1_av=off:bce=on_30");        // first 10, second any
+  // most unsats
+  quick.push("dis+10_10_gsp=on_lcm=reverse_20");
+  // rest are for some unsats
+  quick.push("dis+10_10_lcm=reverse_20");
+  quick.push("dis+10_10_gsp=on:lcm=predicate:sp=occurrence_20");
+  quick.push("dis+10_10_acc=on:fsr=off:lcm=reverse:nicw=on_20");
+  quick.push("dis+10_10_awrs=decay:gsp=on:s2a=on_2_20");
+  quick.push("ins+1_1_igrr=1/64:igwr=on:lcm=reverse:sp=reverse_arity_20");
+
+  /////////////////////// fallback are same, but longer
+  // sat with saturation
+  fallback.push("lrs+2_1_lcm=predicate_1300");         // first >= 2, second any
+  // sat with finite model
+  fallback.push("fmb+10_1_av=off:bce=on_1300");        // first 10, second any
+  // most unsats
+  fallback.push("dis+10_10_gsp=on_lcm=reverse_1300");
+  // rest are for some unsats
+  fallback.push("dis+10_10_lcm=reverse_386");
+  fallback.push("dis+10_10_gsp=on:lcm=predicate:sp=occurrence_386");
+  fallback.push("dis+10_10_acc=on:fsr=off:lcm=reverse:nicw=on_386");
+  fallback.push("dis+10_10_awrs=decay:gsp=on:s2a=on_2_386");
+  fallback.push("ins+1_1_igrr=1/64:igwr=on:lcm=reverse:sp=reverse_arity_386");
+}
+
 void Schedules::getCascSat2019Schedule(const Property& property, Schedule& quick, Schedule& fallback)
 {
   Property::Category cat = property.category(); // currently unused
