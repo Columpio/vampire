@@ -794,7 +794,7 @@ int main(int argc, char* argv[])
       env.options->setOutputMode(Options::Output::SZS);
       env.options->setProof(Options::Proof::TPTP);
       env.options->setSchedule(Options::Schedule::CHC_COMP);
-      env.options->setMulticore(0); // use all available cores
+//      env.options->setMulticore(0); // use all available cores
 
       if (CASC::PortfolioMode::perform(env.options->slowness())) {
         vampireReturnValue = VAMP_RESULT_STATUS_SUCCESS;
